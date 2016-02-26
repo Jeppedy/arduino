@@ -1,0 +1,140 @@
+#include <Narcoleptic.h>
+#include "printfEx.h"
+#include <arduino.h>
+#include <SPI.h>
+#include <RF24.h>
+
+int sendTemperature(int nodeID, int temp1, int temp2=999, int temp3=999) ;
+
+
+#define PIT_PROBE_PIN  0  //A0
+#define FOOD_PROBE_PIN 1  //A1
+#define SLEEP_INTERVAL 15 // in Seconds
+
+unsigned int food_temp = 0;
+unsigned int pit_temp  = 0;
+unsigned int rKnown = 22000;
+
+// Set up nRF24L01 radio on SPI pin for CE, CSN
+#define PAYLOAD_SIZE 21
+#define NODE_ID 0xF1
+const uint64_t pipes[2] = { 0xF0F0F0F0D1LL, 0xF0F0F0F0E2LL };
+
+RF24 radio(9,10);
+
+void setup() {
+	Serial.begin(57600);
+        printfEx_begin();
+
+  radio.begin();
+  radio.setDataRate(RF24_250KBPS);
+  radio.setPALevel(RF24_PA_MAX);
+  radio.setChannel(76);
+  radio.setRetries(15,15);
+  radio.setCRCLength( RF24_CRC_16 ) ;
+  radio.setAutoAck( 0 ) ;   
+  radio.setPayloadSize(PAYLOAD_SIZE) ;
+
+  radio.openWritingPipe(pipes[0]);
+  radio.openReadingPipe(1,pipes[1]);
+
+  // Dump the configuration of the rf unit for debugging
+  radio.printDetails();
+
+  radio.stopListening();
+}
+
+void loop() {
+  reportTemperatures();
+  Serial.flush() ;
+  Narcoleptic.delay( SLEEP_INTERVAL*1000ul ) ;  //  Uses Power_Down mode
+}
+
+// Run this every second.  Inside it could also have static counters to run things on
+// other multiples of seconds.
+void reportTemperatures() {
+  static uint16_t counter=0;
+
+  pit_temp = thermister_temp(analogRead(PIT_PROBE_PIN));
+  food_temp = thermister_temp(analogRead(FOOD_PROBE_PIN));
+
+  counter = (counter >= 9999 ? 0 : counter++);
+  printf("[%4u]  Pit=%3d  Food=%3d\n\r", counter++, pit_temp, food_temp);
+
+  sendTemperature(NODE_ID, pit_temp, food_temp, food_temp);
+}
+
+int thermister_temp(int aval) {
+	double R, T;
+
+	// These were calculated from the thermister data sheet
+	//	A = 2.3067434E-4;
+	//	B = 2.3696596E-4;
+	//	C = 1.2636414E-7;
+	// Rknown is the value of the other half of the voltage divider
+
+	// Do the log once so as not to do it 4 times in the equation
+	//	R = log(((1024/(double)aval)-1)*(double)22200);
+	R = log((1 / ((1024 / (double) aval) - 1)) * (double) rKnown);
+
+	// Compute degrees C
+	T = (1 / ((2.3067434E-4) + (2.3696596E-4) * R + (1.2636414E-7) * R * R * R)) - 273.25;
+
+	// return degrees F
+//	return ((int) ((T * 9.0) / 5.0 + 32.0));
+	return ((int) CelsiusToFarenheit(T));
+}
+
+int CelsiusToFarenheit(float const tCel) {
+	int tFar = tCel * 1.8 + 32;
+  return tFar;
+}
+
+int sendTemperature(int nodeID, int temp1, int temp2, int temp3) {
+  static uint16_t counter=0;
+
+  uint16_t _t1, _t2, _t3, _dummy;
+    _t1 = _t2 = _t3 = _dummy = 9999;
+  char temp[5];
+
+  char outBuffer[32]=""; // Clear the outBuffer before every loop
+
+  // Adjust values for buffer load
+  _t1 = (int16_t) ( temp1 * 10);
+  _t2 = (int16_t) ( temp2 * 10);
+  _t3 = (int16_t) ( temp3 * 10);
+    
+  // Load up the radio buffer
+  if ( ++counter > 999 ) counter = 0;
+
+  // 0
+  sprintf(outBuffer, "%2X", nodeID & 0xff);   // Send the NodeID as the first part of the payload
+
+  // 1 
+  strcat(outBuffer,",");
+  sprintf(temp,"%03d",counter);  // Append sequence number to the test payload
+  strcat(outBuffer,temp);
+
+  // 2 
+  strcat(outBuffer,",");
+  sprintf(temp,"%04d",_t1);
+  strcat(outBuffer,temp);
+
+  // 3 
+  strcat(outBuffer,",");
+  sprintf(temp,"%04d",_t2);
+  strcat(outBuffer,temp);
+
+  // 4 
+  strcat(outBuffer,",");
+  sprintf(temp,"%04d",_t3);
+  strcat(outBuffer,temp);
+
+  printf("outBuffer: %s len: %d ---  ",outBuffer, PAYLOAD_SIZE);
+
+  radio.powerUp() ;
+  if( radio.write( outBuffer, PAYLOAD_SIZE) )
+  { printf("Send Successful\n\r") ;   } 
+  else { printf("Send FAILED!\n\r") ; }
+  radio.powerDown() ;
+}
