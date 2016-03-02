@@ -11,6 +11,7 @@
 #include <printfEx.h>
 
 #include <CheckVoltage.h>
+#include <ReadEEPROMDeviceID.h>
 
 #include <RF24Ex.h>
 #include <RF24SendCommon.h>
@@ -31,8 +32,7 @@
 #define NOTICE_LED   7
 #define ERROR_LED    8
 
-//const int refVoltageOffset = 1062 ;
-const int refVoltageOffset = 1005 ;
+const int refVoltageOffset = 1100 ;
 
 #define SLEEP_INTERVAL  15  // in Minutes
 
@@ -57,28 +57,6 @@ const int refVoltageOffset = 1005 ;
 
 RF24SendCommon radio(CE_PIN, CS_PIN, 0x00);
 
-int readEEPROMDeviceID( )
-{
-  // Required format is  +=xx=+ , where xx is in the form 'E3'
-  char nodeID[2+1] ;
-  int _nodeID = 0 ;
-  if( (char)EEPROM.read(0) == '+' and
-      (char)EEPROM.read(1) == '=' and
-      (char)EEPROM.read(4) == '=' and
-      (char)EEPROM.read(5) == '+' ) {
-        nodeID[0] = (char)EEPROM.read(2) ;
-        nodeID[1] = (char)EEPROM.read(3) ;
-        nodeID[2] = '\0' ;
-
-        _nodeID = strtol(nodeID, NULL, 16) ;
-  }   
-  else {
-    Serial.println("Invalid EEPROM content found; Not a device address") ;
-  }
-  return _nodeID;  
-}
-
-int _adcsra = 0;
 
 void setup(void)
 {
@@ -99,14 +77,12 @@ void setup(void)
 
   // Use the device ID from EEPROM, if present.
   int nodeID = readEEPROMDeviceID();
-  if( nodeID ) {
-    radio.nodeID( nodeID ) ;
-  }   
-  else {
+  if( !nodeID ) {
     Serial.println("Invalid EEPROM address found. Using default.") ;
-    radio.nodeID( DEFAULT_NODE_ID ) ;
-  }
-  Serial.print("Device ID will be: " ) ;
+    nodeID = DEFAULT_NODE_ID ;
+  }   
+  radio.nodeID( nodeID ) ;
+  Serial.print("Device ID is: " ) ;
   Serial.println( radio.nodeID(), HEX ) ;
 
 
@@ -129,7 +105,7 @@ void loop(void)
 
   digitalWrite( NOTICE_LED, HIGH) ;
 
-//  digitalWrite( SOIL_POWER, HIGH ) ;
+  digitalWrite( SOIL_POWER, HIGH ) ;
     delay(500) ;  
 
   soilReading1 = analogRead(PIN1);
@@ -139,17 +115,17 @@ void loop(void)
   soilReading3 = analogRead(PIN1);
   printf("Soil Reading = %d\n", soilReading3) ;
 
-//  digitalWrite( SOIL_POWER, LOW) ;
-    delay(500) ;  
+  digitalWrite( SOIL_POWER, LOW) ;
 
   soilReading = (soilReading1 + soilReading2 + soilReading3 ) / 3 ;
   printf("Average Soil Reading = %d\n", soilReading) ;
   
   if( soilReading >= 999 )  soilReading = 990 ;  // Greater than 990 is a trigger value
 
-  voltage = checkVoltage( _adcsra, refVoltageOffset ) ;
+    delay(1000) ;  
+  voltage = checkVoltage( refVoltageOffset ) ;
 //  printf("Voltage= %d\n", voltage ) ;
-  v2 = voltage ;
+  v3 = voltage ;
 
   digitalWrite( NOTICE_LED, LOW) ;
 
@@ -212,7 +188,6 @@ void setPowerBits() {
   //int serialoutput_bit = 0b00000010 ;
   //PRR = PRR | serialoutput_bit ;  /*  Comment out for DEBUG  */
 
-  _adcsra = ADCSRA;
 //  ADCSRA = 0;
 //  power_adc_disable();
 //  power_usart0_disable();

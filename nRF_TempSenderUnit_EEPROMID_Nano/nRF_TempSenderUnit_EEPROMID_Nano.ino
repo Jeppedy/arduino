@@ -3,22 +3,24 @@
   #include <SPI.h>
   #include <RF24.h>
   #include <OneWire.h>
-  #include <EEPROM.h>
 //---------------------------------------
 #include <avr/power.h>
 #include <Narcoleptic.h>
 #include <printfEx.h>
 
 #include <CheckVoltage.h>
+#include <ReadEEPROMDeviceID.h>
 
 #include <RF24Ex.h>
 #include <RF24SendCommon.h>
 
 #include <DS18_TempLib.h>
 //---------------------------------------
-#define TEMP1_PIN 6   // 
-#define TEMP2_PIN 999 // 
+#define TEMP1_PIN 8   // 
+#define TEMP2_PIN 7   // 
 #define TEMP3_PIN 999 // 
+
+#define BATTERY_VOLTAGE  A0
 
 // Set up nRF24L01 radio on SPI pin for CE, CSN
 #define CE_PIN  9
@@ -26,40 +28,16 @@
 #define DEFAULT_NODE_ID 0xFF
 
 // LEDs used to show the status of the module
-#define NOTICE_LED   7
-#define ERROR_LED    8
+#define NOTICE_LED   5
+#define ERROR_LED    6
 
-// Default const int refVoltageOffset = 1062 ;
-// NATHAN  const int refVoltageOffset = 1055 ;
-const int refVoltageOffset = 1055 ;
+// Default const int refVoltageOffset = 1100 ;
+const int refVoltageOffset = 1100 ;
 
-#define SLEEP_INTERVAL 5 // in Minutes
+#define SLEEP_INTERVAL  5 // in Minutes
 //----------------------------------------------
 
 RF24SendCommon newradio(CE_PIN, CS_PIN, 0x00);
-
-int readEEPROMDeviceID( )
-{
-  // Required format is  +=xx=+ , where xx is in the form 'E3'
-  char nodeID[2+1] ;
-  int _nodeID = 0 ;
-  if( (char)EEPROM.read(0) == '+' and
-      (char)EEPROM.read(1) == '=' and
-      (char)EEPROM.read(4) == '=' and
-      (char)EEPROM.read(5) == '+' ) {
-        nodeID[0] = (char)EEPROM.read(2) ;
-        nodeID[1] = (char)EEPROM.read(3) ;
-        nodeID[2] = '\0' ;
-
-        _nodeID = strtol(nodeID, NULL, 16) ;
-  }   
-  else {
-    Serial.println("Invalid EEPROM content found; Not a device address") ;
-  }
-  return _nodeID;  
-}
-
-int _adcsra = 0;
 
 void setup(void)
 {
@@ -73,18 +51,18 @@ void setup(void)
   digitalWrite( ERROR_LED, LOW) ;
   pinMode(ERROR_LED,OUTPUT);
 
+  pinMode(BATTERY_VOLTAGE,INPUT);
+
   newradio.init() ;
 
   // Use the device ID from EEPROM, if present.
   int nodeID = readEEPROMDeviceID();
-  if( nodeID ) {
-    newradio.nodeID( nodeID ) ;
-  }   
-  else {
+  if( !nodeID ) {
     Serial.println("Invalid EEPROM address found. Using default.") ;
-    newradio.nodeID( DEFAULT_NODE_ID ) ;
-  }
-  Serial.print("Device ID will be: " ) ;
+    nodeID = DEFAULT_NODE_ID ;
+  }   
+  newradio.nodeID( nodeID ) ;
+  Serial.print("Device ID is now: " ) ;
   Serial.println( newradio.nodeID(), HEX ) ;
 
 }
@@ -94,11 +72,19 @@ void loop(void)
   float v1, v2, v3 ;
     v1 = v2 = v3 = 999 ;
   int voltage = 0;
+  int batteryVoltage = 0;
 
   digitalWrite( NOTICE_LED, HIGH) ;
 
-  voltage = checkVoltage( _adcsra, refVoltageOffset ) ;
+  voltage = checkVoltage( refVoltageOffset ) ;
 //  printf("Voltage= %d\n", voltage ) ;
+
+  batteryVoltage = analogRead(BATTERY_VOLTAGE) ;
+//  Serial.print("Raw Battery Charge: ") ;
+//  Serial.println( batteryVoltage ) ;
+  batteryVoltage = map(batteryVoltage, 0, 1023, 0, 330);
+//  Serial.print("Mapped Battery Charge: ") ;
+//  Serial.println( batteryVoltage ) ;
 
   if( TEMP1_PIN != 999 )
     v1 = getDS18Temperature(TEMP1_PIN, true) ;
@@ -106,8 +92,9 @@ void loop(void)
     v2 = getDS18Temperature(TEMP2_PIN, true) ;
   if( TEMP3_PIN != 999 )
     v3 = getDS18Temperature(TEMP3_PIN, true) ;
+  else
+    v3 = batteryVoltage ;
 
-  v2 = voltage ;
 
   digitalWrite( NOTICE_LED, LOW) ;
 
@@ -164,7 +151,6 @@ void setPowerBits() {
   //int serialoutput_bit = 0b00000010 ;
   //PRR = PRR | serialoutput_bit ;  /*  Comment out for DEBUG  */
 
-  _adcsra = ADCSRA;
 //  ADCSRA = 0;
 //  power_usart0_disable();
 //  power_adc_disable();
