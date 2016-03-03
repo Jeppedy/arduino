@@ -11,6 +11,7 @@
 #include <printfEx.h>
 
 #include <CheckVoltage.h>
+#include <EEPROM.h>
 #include <ReadEEPROMDeviceID.h>
 
 #include <RF24Ex.h>
@@ -18,21 +19,25 @@
 
 //#include <LiquidCrystal.h>
 //---------------------------------------
-#define PIN1 A0   // Plant Moisture
+#define PIN1 A4   // Plant Moisture
 #define PIN2 999 // 
 #define PIN3 999 // 
-#define SOIL_POWER A1   // Plant Moisture
+#define SOIL_POWER A5   // Plant Moisture
+
+#define BATTERY_VOLTAGE  A0
 
 // Set up nRF24L01 radio on SPI pin for CE, CSN
 #define CE_PIN  9
 #define CS_PIN 10
-#define DEFAULT_NODE_ID 0xC5
+#define DEFAULT_NODE_ID 0xFF
 
 // LEDs used to show the status of the module
-#define NOTICE_LED   7
-#define ERROR_LED    8
+#define NOTICE_LED   5
+#define ERROR_LED    6
 
+// Default::  const int refVoltageOffset = 1100 ;
 const int refVoltageOffset = 1100 ;
+const int battVoltageOffset =    0 ;  // Every ~30 points is a 0.10 volt offset
 
 #define SLEEP_INTERVAL  15  // in Minutes
 
@@ -73,6 +78,8 @@ void setup(void)
   digitalWrite( ERROR_LED, LOW) ;
   pinMode(ERROR_LED,OUTPUT);
 
+  pinMode(BATTERY_VOLTAGE,INPUT);
+
   radio.init() ;
 
   // Use the device ID from EEPROM, if present.
@@ -102,8 +109,27 @@ void loop(void)
   int soilReading = 0;
   int soilReading1, soilReading2, soilReading3;
   int voltage = 0;
+  int batteryVoltage = 0;
 
   digitalWrite( NOTICE_LED, HIGH) ;
+
+//  ======  Determine battery voltage to report back ======
+  batteryVoltage = analogRead(BATTERY_VOLTAGE) ;
+//  Serial.print("Raw Battery Charge: ") ;
+//  Serial.println( batteryVoltage ) ;
+  batteryVoltage += battVoltageOffset ;
+  batteryVoltage = map(batteryVoltage, 0, 1023, 0, 330);
+//  Serial.print("Mapped Battery Charge: ") ;
+//  Serial.println( batteryVoltage ) ;
+
+  if( batteryVoltage > 0 ) {
+    voltage = batteryVoltage ;
+  } else {
+    voltage = checkVoltage( refVoltageOffset ) ;
+//    printf("Internal voltage= %d\n", voltage ) ;
+  }
+//  printf("Voltage= %d\n", voltage ) ;
+//  ======  end ======
 
   digitalWrite( SOIL_POWER, HIGH ) ;
     delay(500) ;  
@@ -122,9 +148,8 @@ void loop(void)
   
   if( soilReading >= 999 )  soilReading = 990 ;  // Greater than 990 is a trigger value
 
-    delay(1000) ;  
-  voltage = checkVoltage( refVoltageOffset ) ;
-//  printf("Voltage= %d\n", voltage ) ;
+//    delay(1000) ;  
+
   v3 = voltage ;
 
   digitalWrite( NOTICE_LED, LOW) ;
@@ -134,14 +159,13 @@ void loop(void)
 //#  lcd.setCursor(0,1);           // set cursor to column 0, row 1
 //#  lcd.print(reading);
 
-  if( radio.sendCommonMsg( soilReading, v1, v2 ) ) { 
+  if( radio.sendCommonMsg( soilReading, v2, v3 ) ) { 
     printf("Send Successful\n\r") ; 
   }
   else { 
     printf("Send FAILED!\n\r") ;  
     blinkErrorLED() ;
   }
-
 
   Serial.flush() ;
   Narcoleptic.delay( SLEEP_INTERVAL*60*1000ul ) ;  //  Uses Power_Down mode
