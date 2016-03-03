@@ -9,6 +9,8 @@
 #include <printfEx.h>
 
 #include <CheckVoltage.h>
+
+#include <EEPROM.h>
 #include <ReadEEPROMDeviceID.h>
 
 #include <RF24Ex.h>
@@ -32,7 +34,9 @@
 #define ERROR_LED    6
 
 // Default const int refVoltageOffset = 1100 ;
-const int refVoltageOffset = 1100 ;
+const int refVoltageOffset  = 1100 ;
+const int battVoltageOffset =    0 ;  // Every ~30 points is a 0.10 volt offset
+//  HOME Batt Offset = -100
 
 #define SLEEP_INTERVAL  5 // in Minutes
 //----------------------------------------------
@@ -76,25 +80,31 @@ void loop(void)
 
   digitalWrite( NOTICE_LED, HIGH) ;
 
-  voltage = checkVoltage( refVoltageOffset ) ;
-//  printf("Voltage= %d\n", voltage ) ;
-
   batteryVoltage = analogRead(BATTERY_VOLTAGE) ;
 //  Serial.print("Raw Battery Charge: ") ;
 //  Serial.println( batteryVoltage ) ;
+  batteryVoltage += battVoltageOffset ;
   batteryVoltage = map(batteryVoltage, 0, 1023, 0, 330);
 //  Serial.print("Mapped Battery Charge: ") ;
 //  Serial.println( batteryVoltage ) ;
+
+  if( batteryVoltage > 0 ) {
+    voltage = batteryVoltage ;
+  } else {
+    voltage = checkVoltage( refVoltageOffset ) ;
+//    printf("Internal voltage= %d\n", voltage ) ;
+  }
+//  printf("Voltage= %d\n", voltage ) ;
 
   if( TEMP1_PIN != 999 )
     v1 = getDS18Temperature(TEMP1_PIN, true) ;
   if( TEMP2_PIN != 999 )
     v2 = getDS18Temperature(TEMP2_PIN, true) ;
+
   if( TEMP3_PIN != 999 )
     v3 = getDS18Temperature(TEMP3_PIN, true) ;
   else
-    v3 = batteryVoltage ;
-
+    v3 = voltage ;
 
   digitalWrite( NOTICE_LED, LOW) ;
 
